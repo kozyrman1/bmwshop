@@ -3,7 +3,7 @@
 .catalog-page #view[data-ready=false]{visibility:hidden}
 .catalog-page .stage-poster{pointer-events:none}
 .catalog-page [data-car=m5] .stage-bottom>span,.catalog-page [data-car=m5] .stage-controls{visibility:visible}
-.catalog-page .showroom:has(#view[data-ready=true]) .stage-poster{opacity:0}
+.catalog-page .stage:not([data-portrait=true]):has(#view[data-ready=true]) .stage-poster{opacity:0}
 .catalog-page .stage[data-portrait=true] .stage-poster{opacity:1;z-index:2;object-fit:cover;object-position:67% 52%}
 .catalog-page .stage[data-portrait=true] #view canvas{opacity:0}
 .catalog-page #stage #view canvas{transition:opacity .18s ease}
@@ -73,6 +73,7 @@
  .catalog-page .car-panel{margin-top:clamp(300px,53svh,520px);padding-bottom:21px}
  .catalog-page .stage-bottom{top:clamp(262px,47svh,465px)}
  .catalog-page #stage #view,.catalog-page .stage-poster{height:clamp(332px,57svh,560px)}
+ .catalog-page .stage[data-portrait=true] .stage-poster{object-fit:contain;object-position:50% 48%;background:#323532}
  .catalog-page .stage[data-portrait=true] .stage-gloss{background:linear-gradient(0deg,#101317 0%,#101317e8 17%,transparent 51%),linear-gradient(180deg,#101215a9,transparent 23%)}
  .portrait-label{top:94px;bottom:auto;font-size:8px}
  .catalog-page .experience-actions{top:45px;left:var(--gutter);right:auto}
