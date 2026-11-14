@@ -1,0 +1,6 @@
+services:
+  - type: web
+    runtime: static
+    name: bmw-m-showroom
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
