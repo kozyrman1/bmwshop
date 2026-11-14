@@ -2,47 +2,104 @@ import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
-import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
-import {cube,prototypeM5} from './car.js';
+import {Reflector} from 'three/addons/objects/Reflector.js';
+import {cube} from './car.js';
 const vec=(x,y,z)=>new T.Vector3(x,y,z);
 const mat=(c,m=.2,r=.4)=>new T.MeshStandardMaterial({color:c,metalness:m,roughness:r});
 const smooth=t=>{t=T.MathUtils.clamp(t,0,1);return t*t*(3-2*t)};
 export function setupRenderer(canvas, alpha=false){
  const r=new T.WebGLRenderer({canvas,antialias:true,alpha,powerPreference:'high-performance',preserveDrawingBuffer:canvas?.dataset.capture==='true'});
- r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.09;r.outputColorSpace=T.SRGBColorSpace;
+ r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.16;r.outputColorSpace=T.SRGBColorSpace;
  r.setPixelRatio(Math.min(window.devicePixelRatio,1.65));
  return r;
 }
 export function studioEnv(r,s){
- const pm=new T.PMREMGenerator(r),room=new RoomEnvironment();
- s.environment=pm.fromScene(room,.045).texture;s.environmentIntensity=.84;
- room.dispose();pm.dispose();
+ const pm=new T.PMREMGenerator(r),studio=new T.Scene();
+ studio.background=new T.Color('#292d30');
+ function softbox(x,y,z,w,h,gain){
+  const panel=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({color:new T.Color(gain,gain*.97,gain*.91),side:T.DoubleSide}));
+  panel.position.set(x,y,z);panel.lookAt(0,.5,0);studio.add(panel);
+ }
+ softbox(.5,5.5,.3,8,3.6,5.3);
+ softbox(6,2.65,1,8,1.7,2.9);
+ softbox(-4,3.45,-3.7,7.4,1,4.7);
+ softbox(1,2.0,6.8,9,2.6,1.45);
+ softbox(-1,4.0,4,8,.4,2.6);
+ s.environment=pm.fromScene(studio,.035,.15,30).texture;s.environmentIntensity=.92;
+ studio.traverse(o=>{o.geometry?.dispose();o.material?.dispose()});pm.dispose();
+}
+function concrete(){
+ const c=document.createElement('canvas');c.width=c.height=128;
+ const x=c.getContext('2d'),p=x.createImageData(c.width,c.height);
+ let seed=1117;const random=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+ for(let j=0;j<c.height;j++)for(let i=0;i<c.width;i++){
+  const k=(j*c.width+i)*4,v=154+(random()-.5)*22+4*Math.cos(i*.18+j*.09)+3*Math.cos(j*.24-i*.08);
+  p.data.set([v,v,v,255],k);
+ }
+ x.putImageData(p,0,0);
+ const t=new T.CanvasTexture(c);t.colorSpace=T.SRGBColorSpace;t.wrapS=t.wrapT=T.RepeatWrapping;t.repeat.set(5,5);t.anisotropy=4;return t;
 }
 export function buildStudio(){
- const s=new T.Scene();s.background=new T.Color('#222a34');s.fog=new T.FogExp2('#262d37',.027);
- const ambient=new T.HemisphereLight('#cfe3ff','#25252e',1.43);s.add(ambient);
- for(const [x,y,z,c,intensity] of [[4,6,4,'#eff6ff',2.25],[-4,5,-4,'#81bcff',2.5],[0,4,7,'#b7c8e4',1.32],[-6,3,4,'#edf3ff',.9]]){
+ const s=new T.Scene();s.background=new T.Color('#343735');s.fog=new T.FogExp2('#343735',.019);
+ s.add(new T.HemisphereLight('#e0e7ec','#555048',1.38));
+ for(const [x,y,z,c,intensity] of [[3,7,4,'#fff6e9',2.35],[-3,5,-5,'#dce8fa',1.55],[6,3,0,'#ffefe0',.82]]){
   const l=new T.DirectionalLight(c,intensity);l.position.set(x,y,z);s.add(l);
  }
- const floor=new T.Mesh(new T.PlaneGeometry(160,160),mat('#131820',.34,.68));floor.rotation.x=-Math.PI/2;floor.position.y=-.042;s.add(floor);
- const disc=new T.Mesh(new T.CylinderGeometry(3.48,3.51,.12,96),mat('#252d37',.48,.50));disc.position.y=-.083;s.add(disc);
- const ring=new T.Mesh(new T.RingGeometry(3.43,3.445,96),new T.MeshBasicMaterial({color:'#9aacbe',transparent:true,opacity:.47,side:T.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.y=-.018;s.add(ring);
  const room=new T.Group();s.add(room);
- const wall=mat('#171f29',.25,.78),lit=new T.MeshBasicMaterial({color:'#b3d8f4'}),soft=new T.MeshBasicMaterial({color:'#546978'});
- for(let x=-20;x<23;x+=3.2){
-  cube(room,3.15,7,.25,x,3,-8,wall);
-  if(x%3<2)cube(room,.026,4.9,.025,x-1.57,2.45,-7.85,soft);
+ const mineral=concrete();
+ const back=mat('#5f605d',.04,.94),pillar=mat('#383b3d',.12,.76),trim=mat('#22262a',.26,.52),ceiling=mat('#5d5c58',.08,.93),dark=mat('#3a3e40',.09,.85);
+ back.map=mineral;
+ const white=new T.MeshBasicMaterial({color:'#fff3df',toneMapped:false});
+ const windowMat=new T.MeshBasicMaterial({color:'#9ba4a8',toneMapped:false});
+ cube(room,56,7.5,.35,0,3.68,-7.4,back);
+ cube(room,.35,7.5,42,-10.2,3.68,5,back);
+ cube(room,54,.26,26,0,5.28,.5,ceiling);
+ cube(room,56,.52,1.8,0,4.96,-6.41,dark);
+ cube(room,56,.12,.05,0,.1,-7.17,trim);
+ // Deeply recessed display bays and vertical concrete seams.
+ for(let x=-20;x<22;x+=5.2){
+  cube(room,.046,5.05,.08,x,2.65,-7.18,pillar);
+  cube(room,.24,5.05,.64,x+2.52,2.64,-6.97,pillar);
  }
- for(let i=0;i<4;i++)cube(room,34,.026,.016,0,.33+i*.075,-7.84,i===0?lit:soft);
- for(let i=0;i<6;i++)cube(room,17,.04,.10,0,4.6,-6+i*1.1,i%2?soft:lit);
- const cv=document.createElement('canvas');cv.width=128;cv.height=128;const c=cv.getContext('2d'),d=c.createRadialGradient(64,64,8,64,64,64);d.addColorStop(0,'rgba(0,0,0,.78)');d.addColorStop(.6,'rgba(0,0,0,.5)');d.addColorStop(1,'rgba(0,0,0,0)');c.fillStyle=d;c.fillRect(0,0,128,128);
- const shadow=new T.Mesh(new T.PlaneGeometry(6.2,3.1),new T.MeshBasicMaterial({map:new T.CanvasTexture(cv),transparent:true,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=-.012;s.add(shadow);
- return {s,shadow,room,disc,ring};
+ cube(room,10.6,3.15,.22,1.2,2.18,-7.16,trim);
+ cube(room,10.5,.025,.08,1.2,3.73,-7,white);
+ cube(room,10.5,.026,.05,1.2,.60,-7,white);
+ for(let i=0;i<7;i++){
+  const z=-4.7+i*1.63;
+  cube(room,35,.09,.16,.5,5.05,z,trim);
+  cube(room,26,.028,.045,2.1,4.998,z,white);
+ }
+ for(let x=-20;x<-4.5;x+=2.35){
+  cube(room,2.27,3.42,.055,x,2.61,-7.04,windowMat);
+  cube(room,2.29,.036,.06,x,2.94,-6.993,trim);
+  cube(room,.04,3.45,.06,x+1.15,2.6,-6.99,trim);
+ }
+ const lettering=document.createElement('canvas');lettering.width=1024;lettering.height=256;
+ const ctx=lettering.getContext('2d');ctx.fillStyle='#bfe5ff';ctx.font='700 104px sans-serif';ctx.fillText('M',125,145);
+ ctx.fillStyle='#e9e9e4';ctx.font='600 49px sans-serif';ctx.fillText('COLLECTION',245,135);
+ ctx.fillStyle='#b3b9be';ctx.font='500 21px monospace';ctx.fillText('B M W    M   /   S H O W R O O M',249,179);
+ for(let j=0;j<3;j++){ctx.fillStyle=['#7bd1fa','#5069c1','#e75f63'][j];ctx.beginPath();ctx.moveTo(37+j*20,80);ctx.lineTo(55+j*20,80);ctx.lineTo(40+j*20,149);ctx.lineTo(22+j*20,149);ctx.closePath();ctx.fill();}
+ const labelTex=new T.CanvasTexture(lettering);labelTex.colorSpace=T.SRGBColorSpace;
+ const sign=new T.Mesh(new T.PlaneGeometry(5.55,1.39),new T.MeshBasicMaterial({map:labelTex,transparent:true,depthWrite:false,toneMapped:false}));
+ sign.position.set(1.4,2.65,-6.98);room.add(sign);
+ const floorMat=mat('#4c4e51',.12,.62);floorMat.map=mineral;floorMat.transparent=true;floorMat.opacity=.93;
+ const floor=new T.Mesh(new T.PlaneGeometry(70,70),floorMat);floor.rotation.x=-Math.PI/2;floor.position.y=-.039;floor.renderOrder=1;s.add(floor);
+ const reflection=new Reflector(new T.PlaneGeometry(70,70),{textureWidth:768,textureHeight:768,color:'#9c9a98',clipBias:.003,multisample:2});
+ reflection.rotation.x=-Math.PI/2;reflection.position.y=-.045;s.add(reflection);
+ const joints=new T.Group();room.add(joints);
+ for(let i=-5;i<=5;i++){
+  cube(joints,56,.005,.016,0,-.031,i*3.15,trim);
+  cube(joints,.016,.005,56,i*3.15,-.031,0,trim);
+ }
+ const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d'),d=g.createRadialGradient(64,64,3,64,64,63);
+ d.addColorStop(0,'rgba(0,0,0,.92)');d.addColorStop(.54,'rgba(0,0,0,.65)');d.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=d;g.fillRect(0,0,128,128);
+ const shadow=new T.Mesh(new T.PlaneGeometry(6.15,3.45),new T.MeshBasicMaterial({map:new T.CanvasTexture(c),transparent:true,depthWrite:false}));
+ shadow.rotation.x=-Math.PI/2;shadow.position.y=-.012;shadow.renderOrder=2;s.add(shadow);
+ return {s,shadow,room,floor,reflection};
 }
 const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const assetSettings={m4:{paint:/body15/i,lamps:/led111/i},m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i},m5:{paint:/paint|body|carpaint/i,lamps:/headlight|drl/i}};
+const assetSettings={m4:{paint:/body15|mesheszx|mesheswhite4/i,lamps:/led111/i},m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i}};
 export async function loadCar(model){
- if(model.id==='m5'&&!model.asset)return prototypeM5();
  const a=assetSettings[model.id];const {scene:root}=await loader.loadAsync('/media/'+model.id+'.glb');
  const b1=new T.Box3().setFromObject(root),sz=b1.getSize(vec());if(sz.z>sz.x)root.rotation.y=Math.PI/2;
  root.rotation.y+=model.yaw||0;root.updateMatrixWorld(true);
@@ -53,9 +110,10 @@ export async function loadCar(model){
   const group=Array.isArray(o.material)?o.material:[o.material];
   for(const m of group){
    if(model.id==='m4'&&/livery/.test(m.name.toLowerCase()))o.visible=false;
+   if(model.id==='m4'&&/chrome51/i.test(m.name)){m.color.set('#353a3f');m.metalness=.74;m.roughness=.31;}
    if(model.id==='m4'&&/m8rim/.test(m.name.toLowerCase())){m.color.set('#545966');m.metalness=.8;m.roughness=.32;}
    if(model.id==='m3'&&/rim/i.test(m.name)){m.color.set('#535862');m.metalness=.75;}
-   if(a.paint.test(m.name)){m.map=null;m.metalness=.57;m.roughness=.25;m.envMapIntensity=1.15;paint.add(m);}
+   if(a.paint.test(m.name)){m.map=null;m.metalness=.63;m.roughness=.24;m.envMapIntensity=1.2;if('clearcoat' in m){m.clearcoat=.78;m.clearcoatRoughness=.16;}paint.add(m);}
    if(a.lamps.test(m.name)&&m.emissive){m.emissive.set('#b9e5ff');m.emissiveIntensity=.28;lights.add(m);}
   }
   o.castShadow=true;
@@ -123,18 +181,21 @@ export function makeViewer(host,status,reduced){
  if(new URLSearchParams(location.search).has('capture'))canvas.dataset.capture='true';
  let renderer;try{renderer=setupRenderer(canvas)}catch{status.textContent='3D недоступно. Показан статичный ракурс.';return null;}
  host.append(canvas);
- const {s,shadow,room,disc,ring}=buildStudio();studioEnv(renderer,s);
+ const {s,shadow,room,floor,reflection}=buildStudio();studioEnv(renderer,s);
  const road=makeRoad();road.g.visible=false;s.add(road.g);
- const studioSky=new T.Color('#222a34'),roadSky=new T.Color('#425668');
- const camera=new T.PerspectiveCamera(38,1,.09,155);
- const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.085;controls.enablePan=false;controls.minDistance=4.7;controls.maxDistance=13;controls.maxPolarAngle=Math.PI*.487;controls.minPolarAngle=.52;controls.enableZoom=false;controls.rotateSpeed=.63;
+ const studioSky=new T.Color('#343735'),roadSky=new T.Color('#425668');
+ const camera=new T.PerspectiveCamera(36,1,.09,155);
+ const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.085;controls.enablePan=false;controls.minDistance=4.9;controls.maxDistance=18;controls.maxPolarAngle=Math.PI*.48;controls.minPolarAngle=.52;controls.enableZoom=true;controls.zoomSpeed=.75;controls.rotateSpeed=.66;
  const truck=buildTruck();truck.g.visible=false;s.add(truck.g);
  const carNode=new T.Group();s.add(carNode);
  let token=0,active=null,selected=null,chosen=null,mode='idle',since=0,ribbon=null,visible=true,size=vec(),raf=0,dirty=true;
  const cache=new Map();const dpr=()=>Math.min(window.devicePixelRatio,1.65);
  function reset(){
-  const aspect=host.clientWidth/Math.max(1,host.clientHeight),factor=aspect<1.40?1.32:1;
-  camera.position.set(5.2*factor,2.15*factor,5.25*factor);controls.target.set(0,.61,0);controls.update();
+  const w=host.clientWidth,h=host.clientHeight,aspect=w/Math.max(1,h);
+  const factor=aspect<1.12?Math.max(1,1.07/aspect):1;
+  if(w&&h&&w>700)camera.setViewOffset(w,h,-w*.13,-h*.016,w,h);
+  else camera.clearViewOffset();
+  camera.position.set(5.7*factor,2.35*factor,6.55*factor);controls.target.set(0,.70,0);controls.update();
  }
  reset();
  function sizeCanvas(){
@@ -150,17 +211,17 @@ export function makeViewer(host,status,reduced){
  function setMode(m){
   mode=m;host.dataset.scene=m;since=performance.now();
   if(mode==='idle'){controls.enabled=true;reset();}
-  else {controls.enabled=false;}
+  else {controls.enabled=false;camera.clearViewOffset();}
   invalidate();
  }
  function place(now){
   const time=(now-since)/1000,t=reduced?10:time;
   const onRoad=mode==='depart'&&t>1.65;
-  room.visible=disc.visible=ring.visible=!onRoad;road.g.visible=onRoad;s.background=onRoad?roadSky:studioSky;s.fog.color.copy(onRoad?roadSky:studioSky);
+  room.visible=floor.visible=reflection.visible=!onRoad;road.g.visible=onRoad;s.background=onRoad?roadSky:studioSky;s.fog.color.copy(onRoad?roadSky:studioSky);
   const car=carNode.position;car.set(0,0,0);shadow.position.set(0,-.012,0);carNode.rotation.set(0,0,0);
   truck.g.visible=mode==='load'||mode==='depart';if(ribbon)ribbon.visible=mode==='gift';
   const light=mode==='gift'&&!reduced&&((t>.15&&t<.33)||(t>.55&&t<.73));
-  active?.lights.forEach(m=>m.emissiveIntensity=light?7:.30);beam.intensity=light?8:0;
+  active?.lights.forEach(m=>m.emissiveIntensity=light?7:.65);beam.intensity=light?8:0;
   if(mode==='idle')return;
   if(mode==='gift'){
    camera.position.set(6.3-smooth(t/2)*.62,2.45,6.4);camera.lookAt(0,.71,0);
@@ -189,7 +250,7 @@ export function makeViewer(host,status,reduced){
   if(!raf&&(dirty||(mode!=='idle'&&!reduced&&now-since<4800)))raf=requestAnimationFrame(frame);
  }
  raf=requestAnimationFrame(frame);
- function control(key){if(key==='reset')reset();else if(key==='plus'||key==='minus'){
+ function control(key){if(key==='reset'){reset();invalidate();}else if(key==='plus'||key==='minus'){
    const v=camera.position.clone().sub(controls.target),len=v.length(),next=T.MathUtils.clamp(len*(key==='plus'?.83:1.19),controls.minDistance,controls.maxDistance);
    camera.position.copy(controls.target).add(v.setLength(next));controls.update();invalidate();
   }}
