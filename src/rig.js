@@ -1,11 +1,11 @@
 import * as T from 'three';
-import {cockpit} from './m5.js';
+import {seat} from './cabin.js';
 const V=(x,y,z)=>new T.Vector3(x,y,z);
 function pivot(group,x,z,angle){
  const p=new T.Group();p.position.set(x,.65,z);group.add(p);return {pivot:p,angle};
 }
 function m3Door(root,group){
- const names=['m3g81law_door_FL','m3g81law_doorpanel_FL','m3g81law_doorglass_FL','m3g81law_mirror_L_a','m3g80law_doorpanel_FL'];
+ const names=['m3g81law_door_FL','m3g81law_doorpanel_FL','m3g81law_doorglass_FL','m3g81law_mirror_L_a'];
  const d=pivot(group,.79,-.815,-.97);
  group.updateMatrixWorld(true);
  for(const name of names){
@@ -73,10 +73,8 @@ export function rigLocal(root,group,model){
   }
  }else{
   const color=new T.MeshPhysicalMaterial({color:'#29272a',roughness:.65,metalness:.04});
-  const inside=new T.Group();cockpit(inside,color,'m4');
-  // The original dashboard and steering wheel remain; the supplementary cockpit adds leather seating.
-  const seating=inside.children.slice(0,14);
-  for(const child of seating)group.add(child);
+  const black=new T.MeshPhysicalMaterial({color:'#202127',roughness:.66,metalness:.08});
+  for(const side of [-1,1])seat(group,-.15,side*.39,color,black);
   root.traverse(o=>{
    if(o.isMesh&&/mesheswhite4/i.test(o.material?.name||'')){
     const b=new T.Box3().setFromObject(o);

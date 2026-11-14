@@ -4,7 +4,6 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {Reflector} from 'three/addons/objects/Reflector.js';
 import {cube} from './car.js';
-import {makeG90} from './m5.js';
 import {rigLocal} from './rig.js';
 import {addGallery,makeTransport,roadScene} from './garage.js';
 import {bodyColors,interiorColors,defaultPaint} from './data.js';
@@ -102,9 +101,16 @@ export function buildStudio(){
  return {s,shadow,room,floor,reflection};
 }
 const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const assetSettings={m4:{paint:/body15|mesheszx/i,lamps:/led111/i},m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i}};
+const assetSettings={
+ m4:{paint:/body15|mesheszx/i,lamps:/led111/i},
+ m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i}
+};
+function isPainted(id,mesh,material){
+ if(assetSettings[id].paint.test(material.name))return true;
+ return id==='m3'&&material.name==='m3g81law'&&/_(hood|body|fender_[RL]|door_[FRL]{2}|bumper_[FR]|tailgate|mirror_[RL]_a)_m3g81law_0$/i.test(mesh.name);
+}
 export async function loadCar(model, interactive=true){
- if(model.id==='m5')return makeG90();
+ if(model.id==='m5')return {group:new T.Group(),paint:[],trim:[],lights:[],doors:[],wheels:[]};
  const a=assetSettings[model.id];const {scene:root}=await loader.loadAsync('/media/'+model.id+'.glb');
  const b1=new T.Box3().setFromObject(root),sz=b1.getSize(vec());if(sz.z>sz.x)root.rotation.y=Math.PI/2;
  root.rotation.y+=model.yaw||0;root.updateMatrixWorld(true);
@@ -113,24 +119,29 @@ export async function loadCar(model, interactive=true){
  const wrapper=new T.Group();wrapper.add(root);wrapper.updateMatrixWorld(true);
  const paint=new Set(),lights=new Set(),made=new Map();
  root.traverse(o=>{if(o.isMesh){
+  if(model.id==='m3'&&/^m3g80law_(door_|doorpanel_|headlight_)/i.test(o.name))o.visible=false;
   const group=Array.isArray(o.material)?o.material:[o.material];
-  for(const m of group){
+  const newGroup=group.map(m=>{
    if(model.id==='m4'&&/livery/.test(m.name.toLowerCase()))o.visible=false;
    if(model.id==='m4'&&/chrome51/i.test(m.name)){m.color.set('#353a3f');m.metalness=.74;m.roughness=.31;}
    if(model.id==='m4'&&/m8rim/.test(m.name.toLowerCase())){m.color.set('#545966');m.metalness=.8;m.roughness=.32;}
    if(model.id==='m3'&&/rim/i.test(m.name)){m.color.set('#535862');m.metalness=.75;}
-   if(a.paint.test(m.name)){
+   let finish=m;
+   if(isPainted(model.id,o,m)){
     if(!made.has(m))made.set(m,new T.MeshPhysicalMaterial({
-      name:m.name,metalness:.52,roughness:.30,clearcoat:.73,clearcoatRoughness:.24,
-      side:m.side,envMapIntensity:.94
+      name:m.name,metalness:.43,roughness:.34,clearcoat:.52,clearcoatRoughness:.31,
+      side:m.side,envMapIntensity:.9
     }));
-    const finish=made.get(m);o.material=finish;paint.add(finish);
+    finish=made.get(m);paint.add(finish);
    }
-   if(model.id==='m3'&&/chrome_ext/i.test(m.name)){m.color.set('#4d545a');m.metalness=.70;m.roughness=.31;}
+   if(model.id==='m3'&&/chrome_ext/i.test(m.name)){m.color.set('#4d545a');m.metalness=.68;m.roughness=.35;}
+   if(model.id==='m4'&&/meshesblack161|pillars1/i.test(m.name)){m.color.set('#262a30');m.roughness=Math.max(.37,m.roughness);}
+   if(model.id==='m4'&&/mesheswhite4/i.test(m.name)){m.color.set('#262932');m.roughness=Math.max(.46,m.roughness);}
    if(model.id==='m3'&&/glass_saphir|glass_clear/i.test(m.name)){m.roughness=Math.max(.13,m.roughness);m.depthWrite=false;}
    if(a.lamps.test(m.name)&&m.emissive){m.emissive.set('#b9e5ff');m.emissiveIntensity=.28;lights.add(m);}
-  }
-  o.castShadow=true;
+   return finish;
+  });
+  o.material=Array.isArray(o.material)?newGroup:newGroup[0];o.castShadow=true;
  }});
  const rig=interactive?rigLocal(root,wrapper,model):{doors:[],trim:[],wheels:[]};
  return {group:wrapper,paint:[...paint],lights:[...lights],...rig};
@@ -162,6 +173,18 @@ export function makeViewer(host,status,reduced,opts={}){
  let token=0,active=null,selected=null,chosen=null,insideColor=interiorColors[0][0],mode='idle',since=0,ribbon=null,visible=true,size=vec(),raf=0,dirty=true;
  let doorOpen=false,doorMove={from:0,to:0,time:0},doorAngle=0,view='car',interiorAngle={x:0,y:0},viewFlight=null,sceneDone=null;
  const cache=new Map();
+ let portraitTexture;
+ function exhibitPortrait(){
+  const stage=new T.Group(),width=4.5,height=2.53;
+  if(!portraitTexture)portraitTexture=new T.TextureLoader().load('/media/m5-studio.webp',invalidate);
+  portraitTexture.colorSpace=T.SRGBColorSpace;
+  const picture=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({map:portraitTexture,toneMapped:false}));
+  picture.position.set(0,1.55,-.7);stage.add(picture);
+  const frame=mat('#20252a',.5,.35);
+  cube(stage,width+.11,.09,.13,0,.25,-.72,frame);cube(stage,width+.11,.09,.13,0,2.84,-.72,frame);
+  cube(stage,.09,2.59,.13,-2.28,1.54,-.72,frame);cube(stage,.09,2.59,.13,2.28,1.54,-.72,frame);
+  return stage;
+ }
  const dpr=()=>Math.min(window.devicePixelRatio,innerWidth<=700?1.36:1.62);
  const invalidate=()=>{dirty=true;if(!raf&&visible)raf=requestAnimationFrame(frame);};
  function setPerspective(){
@@ -202,7 +225,9 @@ export function makeViewer(host,status,reduced,opts={}){
  function park(){
   if(!selected)return;
   const others=(opts.models||[]).filter(x=>x.id!==selected.id);
+  if(selected.id==='m5'&&!displayNodes.has('m5')){const g=exhibitPortrait();displayNodes.set('m5',g);exhibits.add(g);}
   for(const item of displayNodes.values())item.visible=false;
+  if(selected.id==='m5'){const g=displayNodes.get('m5');g.visible=true;g.position.set(0,0,0);g.rotation.y=0;g.scale.setScalar(1);}
   others.forEach((m,i)=>{
    const show=a=>{
     if(!selected||selected.id===m.id)return;
@@ -213,8 +238,9 @@ export function makeViewer(host,status,reduced,opts={}){
     displayNodes.set(m.id,a.group);exhibits.add(a.group);invalidate();
    };
    if(displayNodes.has(m.id)){
-    const g=displayNodes.get(m.id);g.position.set(i?7.1:-7.1,.012,0);g.rotation.y=i?.22:-.22;g.visible=true;
-   }else prefetch(m,true).then(a=>{if((opts.models||[]).filter(x=>x.id!==selected?.id)[i]?.id===m.id)show(a);}).catch(()=>{});
+    const g=displayNodes.get(m.id);g.position.set(i?7.1:-7.1,.012,0);g.rotation.y=i?.22:-.22;g.scale.setScalar(.91);g.visible=true;
+   }else if(m.id==='m5'){show({group:exhibitPortrait(),paint:[]});}
+   else prefetch(m,true).then(a=>{if((opts.models||[]).filter(x=>x.id!==selected?.id)[i]?.id===m.id)show(a);}).catch(()=>{});
   });
  }
  function paint(hex){chosen=hex;active?.paint.forEach(m=>m.color.set(hex));invalidate();}
@@ -244,11 +270,12 @@ export function makeViewer(host,status,reduced,opts={}){
   const driving=mode==='load'||mode==='loaded'||mode==='depart';
   const onRoad=mode==='depart'&&t>2.45;
   room.visible=floor.visible=reflection.visible=!driving;
+  const stand=displayNodes.get('m5');if(stand&&selected?.id==='m5')stand.visible=mode==='idle'&&view==='hall';
   garage.visible=driving&&!onRoad;road.visible=onRoad;exhibits.visible=mode==='idle';
   s.background=onRoad?roadSky:studioSky;s.fog.color.copy(onRoad?roadSky:studioSky);
   const car=carNode.position;car.set(0,0,0);shadow.position.set(0,-.012,0);shadow.visible=mode==='idle'||mode==='gift';
   carNode.rotation.set(0,0,0);
-  truck.g.visible=driving;if(ribbon)ribbon.visible=mode==='gift';
+  truck.g.visible=driving;if(ribbon)ribbon.visible=mode==='gift'&&selected?.id!=='m5';
   active?.lights.forEach(m=>m.emissiveIntensity=driving?1.82:.82);
   if(mode==='idle'){
    doorAngle=T.MathUtils.lerp(doorMove.from,doorMove.to,reduced?1:smooth((now-doorMove.time)/480));
@@ -299,10 +326,10 @@ export function makeViewer(host,status,reduced,opts={}){
  function mapExhibits(){
   if(mode!=='idle'||view!=='hall'){opts.onMarkers?.([]);return;}
   const points=[...displayNodes].filter(([,g])=>g.visible).map(([id,g])=>{
-   const at=g.position.clone().add(vec(0,1.64,0)).project(camera);
+   const at=g.position.clone().add(vec(0,id==='m5'?2.84:1.64,id==='m5'?-.7:0)).project(camera);
    return {id,x:(at.x*.5+.5)*100,y:(.5-at.y*.5)*100,visible:Math.abs(at.x)<.95&&Math.abs(at.y)<.9&&at.z<1};
   });
-  if(selected){const a=vec(0,1.7,0).project(camera);points.push({id:selected.id,x:(a.x*.5+.5)*100,y:(.5-a.y*.5)*100,visible:Math.abs(a.x)<.95&&Math.abs(a.y)<.9&&a.z<1});}
+  if(selected&&selected.id!=='m5'){const a=vec(0,1.7,0).project(camera);points.push({id:selected.id,x:(a.x*.5+.5)*100,y:(.5-a.y*.5)*100,visible:Math.abs(a.x)<.95&&Math.abs(a.y)<.9&&a.z<1});}
   opts.onMarkers?.(points);
  }
  function frame(now){
@@ -371,7 +398,7 @@ export function makeViewer(host,status,reduced,opts={}){
    if(active)carNode.remove(active.group);
    if(ribbon){carNode.remove(ribbon);ribbon.traverse(o=>{if(o.isMesh)o.geometry.dispose()});ribbon.children[0]?.material.dispose();}
    active=a;carNode.add(a.group);
-   ribbon=bow(m.length);ribbon.visible=false;carNode.add(ribbon);
+   ribbon=m.id==='m5'?null:bow(m.length);if(ribbon){ribbon.visible=false;carNode.add(ribbon);}
    doorOpen=false;doorAngle=0;doorMove={from:0,to:0,time:0};host.dataset.door='closed';
    paint(chosen);trim(insideColor);
    host.dataset.ready='true';host.dataset.model=m.id;status.textContent='';canvas.style.visibility='visible';

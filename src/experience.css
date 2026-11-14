@@ -96,3 +96,25 @@
  #checkout[data-phase=details] .checkout-shade{background:linear-gradient(0deg,#0c1019fa,#101722c9 62%,#10172235)}
 }
 @media(prefers-reduced-motion:reduce){.dispatch-progress i{animation:none}}
+
+/* The same studio composition introduces each car. Real-time controls remain a separate view. */
+.catalog-page .stage[data-portrait=true] .stage-poster{
+ position:absolute;inset:0 0 0 auto;width:83%;height:100%;object-fit:cover;object-position:50% 54%;
+ background:#454641;mask-image:linear-gradient(90deg,transparent,#000 14%);
+}
+.catalog-page .stage[data-portrait=true] .stage-gloss{
+ background:linear-gradient(90deg,#101316 0%,#15181adb 21%,#171b1c3b 43%,transparent 61%),linear-gradient(0deg,#0e1217a3,transparent 24%,transparent 91%,#0e12174d);
+}
+.catalog-page .stage[data-portrait=true] .stage-bottom,.stage[data-car=m5] .portrait-label::before{display:none}
+.catalog-page .stage[data-portrait=true] .portrait-label{bottom:33px}
+.experience-actions .m5-source{padding:9px 12px;color:#edf0f2;font-size:12px;font-weight:640;white-space:nowrap}
+.experience-actions .m5-source:hover{background:#e9eef4;color:#101419}
+.experience-actions [hidden]{display:none!important}
+.catalog-page .stage[data-portrait=true] #view canvas{pointer-events:none}
+.catalog-page [data-view-mode=hall] .stage[data-car=m5] .stage-bottom{display:flex}
+@media(max-width:700px){
+ .catalog-page .stage[data-portrait=true] .stage-poster{inset:0 0 auto;width:100%;height:clamp(330px,57svh,560px);object-fit:contain;object-position:50% 51%;background:#363935;mask-image:none}
+ .catalog-page .stage[data-portrait=true] .stage-gloss{background:linear-gradient(0deg,#101317 0%,#101317e8 21%,transparent 55%),linear-gradient(180deg,#101215a9,transparent 24%)}
+ .catalog-page .stage[data-portrait=true] .portrait-label{top:95px;bottom:auto}
+ .experience-actions .m5-source{padding:7px 8px;font-size:10px}
+}
