@@ -1,13 +1,14 @@
 import './style.css';
 import './showroom.css';
-import {models,money,newOrder,orderTransition} from './data.js';
+import './experience.css';
+import {models,money,newOrder,orderTransition,bodyColors,interiorColors,defaultPaint,payments} from './data.js';
 const $=(s,p=document)=>p.querySelector(s);
 const icons={arrow:'<path d="M4 12h15m-6-6 6 6-6 6"/>',play:'<path d="m9 5 12 7-12 7z"/>',pause:'<path d="M9 5v14m6-14v14"/>',down:'<path d="M12 4v15m-6-6 6 6 6-6"/>',prev:'<path d="m15 6-6 6 6 6"/>',next:'<path d="m9 6 6 6-6 6"/>',orbit:'<ellipse cx="12" cy="12" rx="10" ry="5"/><ellipse cx="12" cy="12" rx="5" ry="10" transform="rotate(35 12 12)"/>',plus:'<path d="M12 5v14M5 12h14"/>',minus:'<path d="M5 12h14"/>',reset:'<path d="M4 11a8 8 0 1 1 2 6M4 5v6h6"/>',x:'<path d="m6 6 12 12M18 6 6 18"/>',truck:'<path d="M2 5h13v12H2zM15 9h4l3 4v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',gift:'<path d="M3 8h18v4H3zm2 4v9h14v-9m-7-4v13m0-13H8a3 3 0 1 1 3-3l1 3h4a3 3 0 1 0-3-3z"/>',check:'<path d="m4 12 5 5 11-11"/>'};
 const icon=(n,size=22)=>`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[n]}</svg>`;
-const stripes='<i class="stripes" aria-hidden="true"><b></b><b></b><b></b></i>';
-const brand=`<a class="brand" href="/" aria-label="M Showroom, главная">${stripes}<span>M<span class="brand-lite"> / SHOWROOM</span></span></a>`;
+const brand=`<a class="brand" href="/" aria-label="BMW M Showroom, главная"><img class="bmw-roundel" src="/bmw.svg" width="43" height="43" alt=""><span>M<span class="brand-lite"> / SHOWROOM</span></span></a>`;
 const catalogPage=/^\/catalog(?:\/|\/index\.html)?$/.test(location.pathname);
-let index=0,color=0,viewer=null,external=null,order=newOrder(),scene='idle',viewPromise;
+const config=Object.fromEntries(models.map(m=>[m.id,{body:defaultPaint[m.id],trim:0}]));
+let portrait=false,index=0,viewer=null,order=newOrder(),viewPromise,selection,routeToken=0,viewMode='car',openDoor=false;
 const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 if(!catalogPage&&location.hash==='#catalog')location.replace('/catalog/'+location.search);
 document.body.classList.toggle('catalog-page',catalogPage);
@@ -25,11 +26,11 @@ ${catalogPage?'':`<section id="home" class="hero">
 ${catalogPage?`<section id="catalog" class="catalog" aria-label="Каталог BMW M">
   <div class="showroom">
     <div class="stage" id="stage" aria-label="Трехмерный шоурум">
-      <div id="view"></div><div id="embed-view" data-engine="local"></div><div class="stage-gloss"></div>
+      <div id="view"></div><div id="gallery-markers" aria-label="Автомобили в зале"></div><div class="stage-gloss"></div>
       <div class="stage-top"><span><i></i> M COLLECTION</span><span id="stage-model"></span></div>
-      <img class="stage-poster" alt="" id="stage-poster">
+      <img class="stage-poster" alt="" id="stage-poster"><span class="portrait-label"><span>СТУДИЙНЫЙ РАКУРС</span></span>
       <div id="stage-status" role="status"></div>
-      <a id="external-link" class="external-link" href="https://sketchfab.com/3d-models/bmw-g90-m5-9dc9e5c88bec4faa94552fdd0b76ed21" target="_blank" rel="noopener noreferrer">Открыть 3D-модель M5 ↗</a>
+
       <div class="stage-bottom">
         <span>${icon('orbit',19)} <span id="hint">Перетащите, чтобы изменить ракурс</span></span>
         <div class="stage-controls">
@@ -38,6 +39,11 @@ ${catalogPage?`<section id="catalog" class="catalog" aria-label="Каталог 
       </div>
     </div>
     <article class="car-panel" id="car-panel" aria-label="Выбранная модель"></article>
+    <div class="experience-actions" aria-label="Режим просмотра">
+      <button type="button" data-experience="hall" aria-pressed="false">Обзор зала</button>
+      <button type="button" data-experience="door" aria-pressed="false" disabled>Открыть дверь</button>
+      <button type="button" data-experience="cockpit" aria-pressed="false" disabled>Сесть за руль</button>
+    </div>
   </div>
   <div class="catalog-foot">
     <span class="collection-label">THE M COLLECTION</span>
@@ -47,101 +53,190 @@ ${catalogPage?`<section id="catalog" class="catalog" aria-label="Каталог 
 </section>`:''}
 </main>
 ${catalogPage?'':`<footer><div class="wrap footer-inner">${brand}<p>Независимая демонстрация. Не является официальным сайтом BMW. <a href="/credits.html">Модели и видео</a></p><a href="/">Наверх ↑</a></div></footer>`}
-<dialog id="checkout"><div class="dialog-inner"><button class="round close" aria-label="Закрыть оформление">${icon('x',20)}</button><div id="checkout-copy"></div></div></dialog>`;
-function selectModel(i){
-  index=(i+models.length)%models.length;color=0;const m=models[index];
-  $$('.model-tab').forEach((b,j)=>b.setAttribute('aria-pressed',String(j===index)));
-  $('#stage-model').textContent=`0${index+1} / 0${models.length} — ${m.code}`;
-  $('#stage').dataset.car=m.id;
-  $('#stage-poster').src='/media/'+m.id+'.webp';
-  $('#pagination').textContent=`0${index+1} / 0${models.length}`;
-  $('#car-panel').innerHTML=`<div class="car-intro"><span class="kicker">${m.edition}</span><h1>${m.name.replace('BMW ','<span>BMW</span> ')}</h1>
-    <dl class="stats"><div><dt>Мощность</dt><dd>${m.power} <small>л.с.</small></dd></div><div><dt>0–100 км/ч</dt><dd>${m.accel} <small>с</small></dd></div><div><dt>Макс. скорость</dt><dd>${m.speed} <small>км/ч</small></dd></div></dl></div>
-    <div class="car-config">
-    <details class="specs"><summary>Характеристики</summary><dl><div><dt>Двигатель</dt><dd>${m.motor}</dd></div><div><dt>Крутящий момент</dt><dd>${m.torque} Н·м</dd></div><div><dt>Привод</dt><dd>${m.drive}</dd></div><div><dt>С пакетом M Driver’s</dt><dd>${m.max} км/ч</dd></div></dl></details>
-    <div class="color-row"><div class="swatches" role="group" aria-label="Цвет кузова">${m.colors.map(([hex,n],j)=>`<button type="button" class="swatch" style="--swatch:${hex}" aria-label="${n}" title="${n}" data-color="${j}" aria-pressed="${j===0}"></button>`).join('')}</div><span id="color-label">${m.colors[0][1]}</span></div>
-    <button class="button primary buy" type="button" id="buy">Оформить демо ${icon('arrow',19)}</button><span class="price-note">Условная цена · ${money(m.price)}</span></div>`;
-  $('#buy').onclick=openOrder;
-  $$('.swatch').forEach(b=>b.onclick=()=>{color=Number(b.dataset.color);$$('.swatch').forEach((c,j)=>c.setAttribute('aria-pressed',String(j===color)));$('#color-label').textContent=m.colors[color][1];if(m.embed)external?.then(v=>v?.paint(m.colors[color][0]));else viewer?.paint(m.colors[color][0]);});
-  if(m.embed){
-    const tint=$('#embed-view').dataset.embedPaint==='true';
-    for(const button of $$('.swatch'))button.disabled=!tint;
-  }
-  loadView();
-}
+<dialog id="checkout" aria-labelledby="order-title">
+  <div class="checkout-viewport" id="checkout-viewport">
+    <div class="checkout-stage" id="checkout-stage"></div><div class="checkout-shade"></div>
+    <header class="checkout-top"><span class="checkout-brand"><img src="/bmw.svg" width="38" height="38" alt="BMW"> M SHOWROOM</span><button type="button" class="round close" aria-label="Закрыть оформление">${icon('x',20)}</button></header>
+    <div id="checkout-copy" class="checkout-copy"></div>
+  </div>
+</dialog>`;
 function $$(s){return [...document.querySelectorAll(s)]}
-function loadView(){
-  const m=models[index], host=$('#view'), embed=$('#embed-view'), status=$('#stage-status');
-  if(m.embed){
-    host.dataset.engine=embed.dataset.engine='embed';
-    status.textContent=embed.dataset.embedReady==='true'?'':embed.dataset.embedReady==='false'?'Показан статичный ракурс BMW M5.':'Загружаем BMW M5…';
-    if(!external){
-      status.textContent='Загружаем BMW M5…';
-      external=import('./external.js').then(({makeExternal})=>makeExternal(embed,status,m,reduced.matches)).catch(()=>{embed.dataset.embedReady='false';if(embed.dataset.engine==='embed')status.textContent='Показан статичный ракурс BMW M5.';return null;});
-    }
-    return external;
-  }
-  host.dataset.engine=embed.dataset.engine='local';
-  if(!viewPromise)viewPromise=import('./view.js').then(({makeViewer})=>{
-    viewer=makeViewer(host,status,reduced.matches);
-    if(viewer&&scene!=='idle')viewer.scene(scene);
-    return viewer;
-  }).catch(e=>{console.error(e);return null});
-  return viewPromise.then(v=>{
-    if(models[index]===m&&v)v.select(m,m.colors[color][0]);return v;
-  });
+function swatches(palette,key,active){
+ return palette.map(([hex,label],i)=>`<button type="button" class="swatch" style="--swatch:${hex}" aria-label="${label}" title="${label}" data-${key}="${i}" aria-pressed="${i===active}"></button>`).join('');
 }
-function controlView(key){
-  if(models[index].embed)external?.then(v=>v?.control(key));
-  else if(viewer)viewer.control(key);
-  else viewPromise?.then(v=>v?.control(key));
+function refreshControls(){
+ const hall=$('[data-experience=hall]'), door=$('[data-experience=door]'), cab=$('[data-experience=cockpit]');
+ if(!hall)return;
+ const ready=$('#view').dataset.ready==='true';
+ hall.disabled=!ready;
+ hall.textContent=viewMode==='hall'?'К автомобилю':'Обзор зала';
+ hall.setAttribute('aria-pressed',String(viewMode==='hall'));
+ cab.disabled=!ready||viewMode==='hall';cab.textContent=viewMode==='cockpit'?'Выйти из салона':'Сесть за руль';
+ cab.setAttribute('aria-pressed',String(viewMode==='cockpit'));
+ door.disabled=!ready||viewMode!=='car';door.textContent=openDoor?'Закрыть дверь':'Открыть дверь';
+ door.setAttribute('aria-pressed',String(openDoor));
+ $('#catalog').dataset.viewMode=viewMode;
+ $('#hint').textContent=viewMode==='hall'?'Выберите автомобиль в зале':viewMode==='cockpit'?'Перетащите, чтобы осмотреться':'Перетащите, чтобы изменить ракурс';
+}
+function useLive(){
+ if(!portrait)return;
+ portrait=false;$('#stage').dataset.portrait='false';
+}
+function setView(next){
+ useLive();
+ if(!viewer||$('#view').dataset.ready!=='true')return;
+ if(next==='cockpit'&&viewMode!=='cockpit'){
+  openDoor=true;viewer.door(true,false);
+ }else if(viewMode==='cockpit'){
+  openDoor=false;viewer.door(false,false);
+ }
+ viewMode=next;viewer.view(next);refreshControls();
+}
+function updateMarkers(points){
+ for(const point of points){
+  const b=$(`[data-exhibit="${point.id}"]`);
+  if(!b)continue;
+  b.style.left=point.x+'%';b.style.top=point.y+'%';
+  b.hidden=!point.visible;
+ }
+ if(!points.length)$$('[data-exhibit]').forEach(b=>b.hidden=true);
+}
+function selectModel(i){
+ index=(i+models.length)%models.length;
+ const m=models[index],c=config[m.id];
+ viewMode='car';openDoor=false;portrait=m.id==='m5';
+ $('#stage').dataset.portrait=String(portrait);
+ $('#view').dataset.ready='false';
+ $$('.model-tab').forEach((b,j)=>b.setAttribute('aria-pressed',String(j===index)));
+ $('#stage-model').textContent=`0${index+1} / 0${models.length} — ${m.code}`;
+ $('#stage').dataset.car=m.id;
+ $('#stage-poster').src='/media/'+m.id+'.webp';
+ $('#pagination').textContent=`0${index+1} / 0${models.length}`;
+ $('#car-panel').innerHTML=`<div class="car-intro"><span class="kicker">${m.edition}</span><h1>${m.name.replace('BMW ','<span>BMW</span> ')}</h1>
+  <dl class="stats"><div><dt>Мощность</dt><dd>${m.power} <small>л.с.</small></dd></div><div><dt>0–100 км/ч</dt><dd>${m.accel} <small>с</small></dd></div><div><dt>Макс. скорость</dt><dd>${m.speed} <small>км/ч</small></dd></div></dl></div>
+  <div class="car-config">
+  <details class="specs"><summary>Характеристики</summary><dl><div><dt>Двигатель</dt><dd>${m.motor}</dd></div><div><dt>Крутящий момент</dt><dd>${m.torque} Н·м</dd></div><div><dt>Привод</dt><dd>${m.drive}</dd></div><div><dt>С пакетом M Driver’s</dt><dd>${m.max} км/ч</dd></div></dl></details>
+  <div class="finish-group"><span class="finish-title">КУЗОВ</span><div class="swatches" role="group" aria-label="Цвет кузова">${swatches(bodyColors,'body',c.body)}</div><span class="finish-label" id="body-label">${bodyColors[c.body][1]}</span></div>
+  <div class="finish-group"><span class="finish-title">САЛОН</span><div class="swatches" role="group" aria-label="Цвет салона">${swatches(interiorColors,'trim',c.trim)}</div><span class="finish-label" id="trim-label">${interiorColors[c.trim][1]}</span></div>
+  <button class="button primary buy" type="button" id="buy">Оформить демо ${icon('arrow',19)}</button><span class="price-note">Условная цена · ${money(m.price)}</span></div>`;
+ $('#buy').onclick=openOrder;
+ for(const [key,palette,apply] of [['body',bodyColors,'paint'],['trim',interiorColors,'trim']]){
+  const list=$$(`[data-${key}]`);
+  for(const b of list)b.onclick=()=>{
+   useLive();c[key]=Number(b.dataset[key]);list.forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+   $(`#${key}-label`).textContent=palette[c[key]][1];
+   viewer?.[apply](palette[c[key]][0]);
+  };
+ }
+ refreshControls();
+ selection=loadView().then(async v=>{
+  if(models[index]!==m||!v)return;
+  await v.select(m,bodyColors[c.body][0],interiorColors[c.trim][0]);
+  if(models[index]===m){
+   v.paint(bodyColors[c.body][0]);v.trim(interiorColors[c.trim][0]);refreshControls();
+  }
+ });
+}
+function pickModel(id){const i=models.findIndex(m=>m.id===id);if(i>=0){if(i===index)setView('car');else selectModel(i);}}
+function loadView(){
+ if(!viewPromise)viewPromise=import('./view.js').then(({makeViewer})=>{
+  viewer=makeViewer($('#view'),$('#stage-status'),reduced.matches,{models,onPick:pickModel,onMarkers:updateMarkers});
+  return viewer;
+ }).catch(e=>{console.error(e);$('#stage-status').textContent='3D недоступно. Показан статичный ракурс.';return null});
+ return viewPromise;
 }
 const dialog=$('#checkout');
-function openOrder(){order=newOrder();scene='idle';renderOrder();dialog.showModal();if(!models[index].embed)viewer?.scene('idle');}
+const sceneHost=$('#checkout-stage');
+function openOrder(){
+ useLive();order=newOrder();routeToken++;renderOrder();dialog.showModal();
+}
+function restoreStage(){
+ const view=$('#view'),stage=$('#stage');
+ if(view&&stage&&view.parentElement!==stage)stage.prepend(view);
+ viewer?.scene('idle');viewMode='car';openDoor=false;refreshControls();
+}
 dialog.querySelector('.close').onclick=()=>dialog.close();
-dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close()});
-dialog.addEventListener('close',()=>{scene='idle';if(!models[index]?.embed)viewer?.scene('idle');stageRestore();});
-function stageRestore(){const view=$('#view'),stage=$('#stage');if(view&&stage&&view.parentElement!==stage)stage.prepend(view)}
-const sceneHost=document.createElement('div');
-sceneHost.id='order-stage';sceneHost.className='order-stage';
-function moveScene(next){
-  scene=next;
-  if(!models[index].embed)sceneHost.append($('#view'));
-  const fallback=sceneHost.querySelector('img')||Object.assign(document.createElement('img'),{alt:''});
-  fallback.src='/media/'+models[index].id+'.webp';sceneHost.append(fallback);
-  if(!models[index].embed)viewer?.scene(next);
+dialog.addEventListener('close',()=>{
+ routeToken++;restoreStage();order=newOrder();
+ $('#checkout-copy').textContent='';dialog.dataset.phase='';
+});
+function attachCheckoutScene(){
+ sceneHost.classList.add('has-media');
+ const m=models[index],view=$('#view');
+ sceneHost.style.backgroundImage=`url("/media/${m.id}.webp")`;
+ if(view&&view.parentElement!==sceneHost)sceneHost.append(view);
+}
+async function playOrder(next,expected,transition){
+ const token=routeToken;
+ attachCheckoutScene();
+ await selection;
+ if(token!==routeToken||!dialog.open||order.step!==expected)return;
+ if(viewer&&$('#view').dataset.ready==='true'){
+  const complete=await viewer.scene(next);
+  if(!complete)return;
+ }else if(!reduced.matches){
+  await new Promise(resolve=>setTimeout(resolve,750));
+ }
+ if(token!==routeToken||!dialog.open||order.step!==expected)return;
+ order=orderTransition(order,transition);
+ if(transition==='loaded')viewer?.loaded();
+ renderOrder();
+}
+const formFields={
+ lastName:['Фамилия','Иванов','family-name',true],
+ firstName:['Имя','Алексей','given-name',true],
+ middleName:['Отчество','Если есть','additional-name',false],
+ city:['Город','Москва','address-level2',true],
+ street:['Улица','Лесная','address-line1',true],
+ house:['Дом','5','off',true]
+};
+function field(key){
+ const [label,placeholder,autocomplete,required]=formFields[key];
+ return `<label>${label}<input name="${key}" maxlength="${key==='house'?25:95}" placeholder="${placeholder}" autocomplete="${autocomplete}" ${required?'required':''}></label>`;
 }
 function renderOrder(){
-  const m=models[index], c=$('#checkout-copy');
-  const title={method:'Как получите BMW?',details:order.method==='delivery'?'Куда доставить BMW?':'Заберите свой BMW',payment:'Как оплатить?',complete:order.method==='delivery'?'BMW в пути':'BMW ждет вас'}[order.step];
-  let lead={method:'Выберите способ получения и посмотрите, как он выглядит в шоуруме.',details:order.method==='delivery'?'BMW заезжает в закрытый автовоз. Введите демонстрационный адрес.':'Фары вспыхнули, лента на месте. Введите имя для демонстрации.',payment:'Выберите вариант для демонстрационного заказа. Деньги не списываются.',complete:order.method==='delivery'?'Автовоз выехал из шоурума в демонстрационной сцене.':'Фары и подарочная лента — ваш BMW готов к выдаче в шоуруме.'}[order.step];
-  if(m.embed&&order.step==='details')lead=order.method==='delivery'?'Укажите демонстрационный адрес для доставки.':'Введите имя для демонстрации.';
-  if(m.embed&&order.step==='complete')lead='Демонстрационный заказ оформлен.';
-  const step={method:'01',details:'02',payment:'03',complete:'04'}[order.step];
-  c.innerHTML=`<span class="kicker"><i></i> ${step} / ${m.name}</span><h2>${title}</h2><p>${lead}</p><div class="scene-slot"></div><div id="order-content"></div><div class="demo-note">Демо-заказ. Данные не отправляются, оплата не проводится.</div>`;
-  const body=$('#order-content');
-  if(order.step==='method'){
-    stageRestore();
-    body.innerHTML=`<div class="method-grid"><button type="button" data-method="delivery">${icon('truck',26)}<strong>Доставка</strong><small>Закрытый автовоз</small></button><button type="button" data-method="pickup">${icon('gift',26)}<strong>Самовывоз</strong><small>Выдача в шоуруме</small></button></div>`;
-    $$('[data-method]').forEach(b=>b.onclick=()=>{order=orderTransition(order,'method',{method:b.dataset.method});renderOrder();moveScene(order.method==='delivery'?'load':'gift');});
-  } else {
-    $('.scene-slot',c).append(sceneHost);
-    if(order.step==='details'){
-      body.innerHTML=`<form id="details-form"><label>Имя<input name="name" maxlength="80" required placeholder="Алексей" autocomplete="off"></label>${order.method==='delivery'?'<div class="address-grid"><label>Город<input name="city" required maxlength="100" placeholder="Москва" autocomplete="off"></label><label>Улица и дом<input name="address" required maxlength="180" placeholder="Лесная, 5" autocomplete="off"></label></div>':''}<div class="form-actions"><button type="button" class="back">Назад</button><button type="submit" class="button primary">К оплате ${icon('arrow')}</button></div></form>`;
-      const form=$('#details-form');
-      for(const k of ['name','city','address'])if(form.elements[k])form.elements[k].value=order[k];
-      form.onsubmit=e=>{e.preventDefault();const data=Object.fromEntries(new FormData(form));for(const el of [...form.querySelectorAll('input')])if(!el.value.trim()){el.setCustomValidity('Заполните это поле');el.reportValidity();return;}order=orderTransition(order,'details',data);renderOrder();if(order.method==='delivery')moveScene('depart');};
-      form.oninput=e=>e.target.setCustomValidity('');
-    } else if(order.step==='payment'){
-      body.innerHTML=`<form id="payment-form"><div class="payment-options"><label><input type="radio" name="payment" value="На месте" ${order.payment!=='Счет'?'checked':''}> На месте</label><label><input type="radio" name="payment" value="Счет" ${order.payment==='Счет'?'checked':''}> По счету</label></div><div class="form-actions"><button class="back" type="button">Назад</button><button class="button primary" type="submit">Подтвердить демо-заказ ${icon('check',19)}</button></div></form>`;
-      $('#payment-form').onsubmit=e=>{e.preventDefault();order=orderTransition(order,'finish',Object.fromEntries(new FormData(e.currentTarget)));renderOrder();};
-    } else {
-      body.innerHTML=`<p id="receipt" role="status"></p><button type="button" id="done" class="button primary">В каталог ${icon('arrow')}</button>`;
-      $('#receipt').textContent=[m.name,order.method==='delivery'?order.city+', '+order.address:'Самовывоз',order.payment==='Счет'?'По счету':'Оплата на месте'].join(' · ');
-      $('#done').onclick=()=>dialog.close();
-    }
-  }
-  const back=$('.back',c);if(back)back.onclick=()=>{order=orderTransition(order,'back');renderOrder();if(order.step==='details')moveScene(order.method==='delivery'?'load':'gift');};
+ const m=models[index],delivery=order.method==='delivery',c=$('#checkout-copy');
+ dialog.dataset.phase=order.step;
+ if(order.step==='method')sceneHost.classList.remove('has-media');
+ const [number,title,lead]={
+  method:['01','Как получите BMW?','Выберите способ получения автомобиля.'],
+  loading:['02','Погрузка автомобиля','BMW выезжает из гаража и заезжает в закрытый автовоз.'],
+  details:['03',delivery?'Куда доставить BMW?':'Самовывоз из шоурума',delivery?'Автомобиль в автовозе. Укажите адрес и способ оплаты.':'Укажите имя и способ оплаты.'],
+  departing:['04','Автовоз выезжает','Ваш BMW покидает шоурум.'],
+  complete:['05',delivery?'BMW в пути':'BMW ждёт вас',delivery?'Демонстрационная доставка оформлена.':'Демонстрационный заказ оформлен.']
+ }[order.step];
+ c.innerHTML=`<span class="kicker"><i></i> ${number} / ${m.name.toUpperCase()}</span><h2 id="order-title" tabindex="-1">${title}</h2><p>${lead}</p><div id="order-content"></div><div class="demo-note">Демо. Данные не отправляются, оплата не списывается.</div>`;
+ const body=$('#order-content');
+ if(order.step==='method'){
+  body.innerHTML=`<div class="method-grid"><button type="button" data-method="delivery">${icon('truck',26)}<strong>Доставка</strong><small>Закрытый автовоз</small></button><button type="button" data-method="pickup">${icon('gift',26)}<strong>Самовывоз</strong><small>Выдача в шоуруме</small></button></div>`;
+  for(const b of $$('[data-method]'))b.onclick=()=>{
+   order=orderTransition(order,'method',{method:b.dataset.method});renderOrder();
+   if(order.method==='delivery')playOrder('load','loading','loaded');
+   else{attachCheckoutScene();selection?.then(()=>{if(dialog.open&&order.method==='pickup')viewer?.scene('gift');});}
+  };
+ }else if(order.step==='details'){
+  body.innerHTML=`<form id="details-form"><div class="order-fields"><div class="order-name">${['lastName','firstName','middleName'].map(field).join('')}</div>
+   ${delivery?`<div class="order-address">${['city','street','house'].map(field).join('')}</div>`:''}</div>
+   <fieldset class="order-payment"><legend>Способ оплаты</legend><div class="payment-options">${payments.map((p,i)=>`<label><input type="radio" name="payment" value="${p}" ${i===0?'checked':''}> ${p}</label>`).join('')}</div></fieldset>
+   <button type="submit" class="button primary">Далее ${icon('arrow',19)}</button></form>`;
+  const form=$('#details-form');
+  form.oninput=e=>e.target.setCustomValidity('');
+  form.onsubmit=e=>{
+   e.preventDefault();
+   for(const el of form.querySelectorAll('input[required]'))if(!el.value.trim()){el.setCustomValidity('Заполните это поле');el.reportValidity();return;}
+   const next=orderTransition(order,'submit',Object.fromEntries(new FormData(form)));
+   if(next===order)return;
+   order=next;renderOrder();
+   if(delivery)playOrder('depart','departing','departed');
+  };
+ }else if(order.step==='complete'){
+  body.innerHTML=`<p class="receipt" role="status"></p><button type="button" class="button primary" id="done">В каталог ${icon('arrow',19)}</button>`;
+  $('.receipt',body).textContent=[m.name,delivery?[order.city,order.street,order.house].join(', '):'Самовывоз',order.payment].join(' · ');
+  $('#done').onclick=()=>dialog.close();
+ }else{
+  body.innerHTML='<div class="dispatch-progress" role="status" aria-label="Идёт анимация"><i></i></div>';
+ }
+ if(dialog.open)$('#order-title').focus({preventScroll:true});
 }
 const film=$('#hero-film'),filmBtn=$('#film-toggle');
 if(film){
@@ -153,14 +248,17 @@ if(film){
   new IntersectionObserver(([e])=>{if(e.isIntersecting&&filmDesired)tryPlay();else if(!e.isIntersecting)film.pause()},{threshold:.05}).observe($('.hero'));
 }
 if(catalogPage){
-  $$('.model-tab').forEach(b=>b.onclick=()=>selectModel(Number(b.dataset.model)));
-  $$('[data-view]').forEach(b=>b.onclick=()=>controlView(b.dataset.view));
-  $('#prev').onclick=()=>selectModel(index-1);
-  $('#next').onclick=()=>selectModel(index+1);
-  $('#embed-view').addEventListener('embed-paint',e=>{
-    $('#embed-view').dataset.embedPaint=String(e.detail);
-    if(models[index].embed)for(const button of $$('.swatch'))button.disabled=!e.detail;
-  });
-  const requested=models.findIndex(m=>m.id===new URLSearchParams(location.search).get('model'));
-  selectModel(requested<0?1:requested);
+ $('#gallery-markers').innerHTML=models.map(m=>`<button type="button" data-exhibit="${m.id}" hidden>${m.name} ${icon('arrow',13)}</button>`).join('');
+ $$('[data-exhibit]').forEach(b=>b.onclick=()=>pickModel(b.dataset.exhibit));
+ $$('.model-tab').forEach(b=>b.onclick=()=>selectModel(Number(b.dataset.model)));
+ $$('[data-view]').forEach(b=>b.onclick=()=>{useLive();viewer?.control(b.dataset.view);});
+ $('[data-experience=hall]').onclick=()=>setView(viewMode==='hall'?'car':'hall');
+ $('[data-experience=cockpit]').onclick=()=>setView(viewMode==='cockpit'?'car':'cockpit');
+ $('[data-experience=door]').onclick=()=>{useLive();if(viewer?.door(!openDoor)){openDoor=!openDoor;refreshControls();}};
+ $('#view').addEventListener('pointerdown',useLive);
+ $('#view').addEventListener('keydown',useLive);
+ $('#prev').onclick=()=>selectModel(index-1);
+ $('#next').onclick=()=>selectModel(index+1);
+ const requested=models.findIndex(m=>m.id===new URLSearchParams(location.search).get('model'));
+ selectModel(requested<0?0:requested);
 }

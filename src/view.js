@@ -4,12 +4,16 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {Reflector} from 'three/addons/objects/Reflector.js';
 import {cube} from './car.js';
+import {makeG90} from './m5.js';
+import {rigLocal} from './rig.js';
+import {addGallery,makeTransport,roadScene} from './garage.js';
+import {bodyColors,interiorColors,defaultPaint} from './data.js';
 const vec=(x,y,z)=>new T.Vector3(x,y,z);
 const mat=(c,m=.2,r=.4)=>new T.MeshStandardMaterial({color:c,metalness:m,roughness:r});
 const smooth=t=>{t=T.MathUtils.clamp(t,0,1);return t*t*(3-2*t)};
 export function setupRenderer(canvas, alpha=false){
  const r=new T.WebGLRenderer({canvas,antialias:true,alpha,powerPreference:'high-performance',preserveDrawingBuffer:canvas?.dataset.capture==='true'});
- r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.16;r.outputColorSpace=T.SRGBColorSpace;
+ r.toneMapping=T.ACESFilmicToneMapping;r.toneMappingExposure=1.04;r.outputColorSpace=T.SRGBColorSpace;
  r.setPixelRatio(Math.min(window.devicePixelRatio,1.65));
  return r;
 }
@@ -20,9 +24,9 @@ export function studioEnv(r,s){
   const panel=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({color:new T.Color(gain,gain*.97,gain*.91),side:T.DoubleSide}));
   panel.position.set(x,y,z);panel.lookAt(0,.5,0);studio.add(panel);
  }
- softbox(.5,5.5,.3,8,3.6,5.3);
+ softbox(.5,5.5,.3,8,3.6,3.75);
  softbox(6,2.65,1,8,1.7,2.9);
- softbox(-4,3.45,-3.7,7.4,1,4.7);
+ softbox(-4,3.45,-3.7,7.4,1,3.5);
  softbox(1,2.0,6.8,9,2.6,1.45);
  softbox(-1,4.0,4,8,.4,2.6);
  s.environment=pm.fromScene(studio,.035,.15,30).texture;s.environmentIntensity=.92;
@@ -98,14 +102,16 @@ export function buildStudio(){
  return {s,shadow,room,floor,reflection};
 }
 const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const assetSettings={m4:{paint:/body15|mesheszx|mesheswhite4/i,lamps:/led111/i},m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i}};
-export async function loadCar(model){
+const assetSettings={m4:{paint:/body15|mesheszx/i,lamps:/led111/i},m3:{paint:/coloured_gloss/i,lamps:/running_front|headlight_low/i}};
+export async function loadCar(model, interactive=true){
+ if(model.id==='m5')return makeG90();
  const a=assetSettings[model.id];const {scene:root}=await loader.loadAsync('/media/'+model.id+'.glb');
  const b1=new T.Box3().setFromObject(root),sz=b1.getSize(vec());if(sz.z>sz.x)root.rotation.y=Math.PI/2;
  root.rotation.y+=model.yaw||0;root.updateMatrixWorld(true);
  const b2=new T.Box3().setFromObject(root),w=b2.getSize(vec()).x;root.scale.multiplyScalar(model.length/w);root.updateMatrixWorld(true);
  const b=new T.Box3().setFromObject(root),c=b.getCenter(vec());root.position.sub(vec(c.x,b.min.y,c.z));
- const paint=new Set(),lights=new Set();
+ const wrapper=new T.Group();wrapper.add(root);wrapper.updateMatrixWorld(true);
+ const paint=new Set(),lights=new Set(),made=new Map();
  root.traverse(o=>{if(o.isMesh){
   const group=Array.isArray(o.material)?o.material:[o.material];
   for(const m of group){
@@ -113,38 +119,21 @@ export async function loadCar(model){
    if(model.id==='m4'&&/chrome51/i.test(m.name)){m.color.set('#353a3f');m.metalness=.74;m.roughness=.31;}
    if(model.id==='m4'&&/m8rim/.test(m.name.toLowerCase())){m.color.set('#545966');m.metalness=.8;m.roughness=.32;}
    if(model.id==='m3'&&/rim/i.test(m.name)){m.color.set('#535862');m.metalness=.75;}
-   if(a.paint.test(m.name)){m.map=null;m.metalness=.63;m.roughness=.24;m.envMapIntensity=1.2;if('clearcoat' in m){m.clearcoat=.78;m.clearcoatRoughness=.16;}paint.add(m);}
+   if(a.paint.test(m.name)){
+    if(!made.has(m))made.set(m,new T.MeshPhysicalMaterial({
+      name:m.name,metalness:.52,roughness:.30,clearcoat:.73,clearcoatRoughness:.24,
+      side:m.side,envMapIntensity:.94
+    }));
+    const finish=made.get(m);o.material=finish;paint.add(finish);
+   }
+   if(model.id==='m3'&&/chrome_ext/i.test(m.name)){m.color.set('#4d545a');m.metalness=.70;m.roughness=.31;}
+   if(model.id==='m3'&&/glass_saphir|glass_clear/i.test(m.name)){m.roughness=Math.max(.13,m.roughness);m.depthWrite=false;}
    if(a.lamps.test(m.name)&&m.emissive){m.emissive.set('#b9e5ff');m.emissiveIntensity=.28;lights.add(m);}
   }
   o.castShadow=true;
  }});
- return {group:root,paint:[...paint],lights:[...lights]};
-}
-function buildTruck(){
- const g=new T.Group(),dark=mat('#242a34',.48,.27),side=mat('#465367',.52,.34),tire=mat('#101116',.08,.75),wheel=mat('#7a8590',.63,.27),glass=mat('#151e28',.42,.17),red=new T.MeshBasicMaterial({color:'#fa4f58'}),white=new T.MeshBasicMaterial({color:'#b2dcf8'});
- cube(g,6.05,.33,2.35,0,.52,0,dark);
- cube(g,6.02,.11,2.27,0,.74,0,side);
- cube(g,6.02,1.85,.09,0,1.71,-1.13,side);
- cube(g,6.02,.11,2.28,0,2.61,0,side);
- cube(g,.09,1.85,2.27,2.98,1.71,0,side);
- const flank=cube(g,6.02,1.84,.09,0,1.71,1.13,side);flank.visible=false;
- for(const z of [-1.13,1.13]){
-  cube(g,6,.038,.028,0,2.55,z,white);
-  cube(g,6,.041,.028,0,.81,z,white);
-  cube(g,.07,1.84,.065,-2.98,1.71,z,side);
-  cube(g,.07,.12,.09,-3.045,.57,z,red);
- }
- cube(g,1.84,1.39,2.15,4,.99,0,dark);cube(g,1.41,.96,2.02,3.89,1.89,0,side);
- cube(g,.045,.54,1.80,4.612,1.97,0,glass);
- for(const z of [-1.023,1.023]){cube(g,.69,.52,.04,4.08,1.95,z,glass);cube(g,.08,.13,.31,4.93,.83,z*.76,white);}
- for(const x of [-2.02,-1.28,3.98])for(const z of [-1.09,1.09]){
-  const w=new T.Mesh(new T.CylinderGeometry(.39,.39,.27,30),tire);w.rotation.x=Math.PI/2;w.position.set(x,.38,z);g.add(w);
-  const rim=new T.Mesh(new T.CylinderGeometry(.20,.20,.021,24),wheel);rim.rotation.x=Math.PI/2;rim.position.set(x,.38,z+Math.sign(z)*.142);g.add(rim);
- }
- const gate=new T.Group();gate.position.set(-3,.73,0);g.add(gate);
- cube(gate,2.85,.075,2.21,-1.425,0,0,side);
- for(let j=0;j<10;j++)cube(gate,.025,.018,2.15,-.15-j*.26,.041,0,dark);
- return {g,gate,flank};
+ const rig=interactive?rigLocal(root,wrapper,model):{doors:[],trim:[],wheels:[]};
+ return {group:wrapper,paint:[...paint],lights:[...lights],...rig};
 }
 function bow(length){
  const group=new T.Group(),r=new T.MeshPhysicalMaterial({color:'#bd193d',metalness:.4,roughness:.29,clearcoat:.7,side:T.DoubleSide});
@@ -158,121 +147,235 @@ function bow(length){
  cube(group,.16,.115,.22,.01,1.54,0,r);
  return group;
 }
-function makeRoad(){
- const g=new T.Group(),asphalt=mat('#181e27',.08,.82),verge=mat('#26333e',.04,.87);
- cube(g,190,.095,8,54,-.041,0,asphalt);
- for(const side of [-1,1]){
-  cube(g,190,.1,.063,54,.011,side*3.82,new T.MeshBasicMaterial({color:'#8296ac'}));
-  cube(g,190,.17,13,54,-.086,side*10.6,verge);
-  cube(g,190,.075,.045,54,.29,side*4.57,mat('#5c6774',.65,.41));
- }
- const stripes=new T.Group();g.add(stripes);
- const marker=new T.MeshBasicMaterial({color:'#8798a9'});
- for(let j=-4;j<14;j++)cube(stripes,1.6,.017,.057,j*4,.014,1.85,marker);
- const range=new T.Group();g.add(range);
- for(let j=0;j<34;j++){
-  const peak=new T.Mesh(new T.ConeGeometry(4+3*Math.abs(Math.sin(j*4.1)),3+7*Math.abs(Math.sin(j*1.7)),5),new T.MeshBasicMaterial({color:j%2?'#273643':'#304252'}));
-  peak.position.set(-35+j*5.8,.8,-30-3*Math.sin(j));peak.rotation.y=j*.7;range.add(peak);
- }
- return {g,stripes};
-}
-export function makeViewer(host,status,reduced){
- const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('aria-label','3D-модель BMW. Стрелки вращают автомобиль.');
- if(new URLSearchParams(location.search).has('capture'))canvas.dataset.capture='true';
+export function makeViewer(host,status,reduced,opts={}){
+ const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('aria-label','Трёхмерный зал BMW. Стрелки меняют ракурс.');
  let renderer;try{renderer=setupRenderer(canvas)}catch{status.textContent='3D недоступно. Показан статичный ракурс.';return null;}
  host.append(canvas);
  const {s,shadow,room,floor,reflection}=buildStudio();studioEnv(renderer,s);
- const road=makeRoad();road.g.visible=false;s.add(road.g);
- const studioSky=new T.Color('#343735'),roadSky=new T.Color('#425668');
- const camera=new T.PerspectiveCamera(36,1,.09,155);
- const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.085;controls.enablePan=false;controls.minDistance=4.9;controls.maxDistance=18;controls.maxPolarAngle=Math.PI*.48;controls.minPolarAngle=.52;controls.enableZoom=true;controls.zoomSpeed=.75;controls.rotateSpeed=.66;
- const truck=buildTruck();truck.g.visible=false;s.add(truck.g);
- const carNode=new T.Group();s.add(carNode);
- let token=0,active=null,selected=null,chosen=null,mode='idle',since=0,ribbon=null,visible=true,size=vec(),raf=0,dirty=true;
- const cache=new Map();const dpr=()=>Math.min(window.devicePixelRatio,1.65);
- function reset(){
-  const w=host.clientWidth,h=host.clientHeight,aspect=w/Math.max(1,h);
-  const factor=aspect<1.12?Math.max(1,1.07/aspect):1;
-  if(w&&h&&w>700)camera.setViewOffset(w,h,-w*.13,-h*.016,w,h);
-  else camera.clearViewOffset();
-  camera.position.set(5.7*factor,2.35*factor,6.55*factor);controls.target.set(0,.70,0);controls.update();
- }
- reset();
- function sizeCanvas(){
-  const w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
-  if(w!==size.x||h!==size.y){size.set(w,h,0);renderer.setPixelRatio(dpr());renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(mode==='idle')reset();}
- }
+ const garage=addGallery(room,s), road=roadScene();s.add(road);
+ const studioSky=new T.Color('#343735'),roadSky=new T.Color('#364654');
+ const camera=new T.PerspectiveCamera(37,1,.065,155);
+ const controls=new OrbitControls(camera,canvas);
+ controls.enableDamping=true;controls.dampingFactor=.085;controls.enablePan=false;controls.minDistance=4.0;controls.maxDistance=29;controls.maxPolarAngle=Math.PI*.484;controls.minPolarAngle=.48;controls.zoomSpeed=.75;controls.rotateSpeed=.66;
+ const truck=makeTransport();truck.g.visible=false;s.add(truck.g);
+ const carNode=new T.Group(),exhibits=new T.Group(),displayNodes=new Map();s.add(carNode,exhibits);
+ let token=0,active=null,selected=null,chosen=null,insideColor=interiorColors[0][0],mode='idle',since=0,ribbon=null,visible=true,size=vec(),raf=0,dirty=true;
+ let doorOpen=false,doorMove={from:0,to:0,time:0},doorAngle=0,view='car',interiorAngle={x:0,y:0},viewFlight=null,sceneDone=null;
+ const cache=new Map();
+ const dpr=()=>Math.min(window.devicePixelRatio,innerWidth<=700?1.36:1.62);
  const invalidate=()=>{dirty=true;if(!raf&&visible)raf=requestAnimationFrame(frame);};
- const resize=new ResizeObserver(()=>{sizeCanvas();invalidate()});resize.observe(host);
- new IntersectionObserver(([e])=>{visible=e.isIntersecting;if(visible)invalidate()}).observe(host);
- controls.addEventListener('change',invalidate);
- const beam=new T.PointLight('#b7eaff',0,6,2);beam.position.set(2.75,.78,0);carNode.add(beam);
- function color(hex){chosen=hex;active?.paint.forEach(m=>m.color.set(hex));invalidate();}
- function setMode(m){
-  mode=m;host.dataset.scene=m;since=performance.now();
-  if(mode==='idle'){controls.enabled=true;reset();}
-  else {controls.enabled=false;camera.clearViewOffset();}
+ function setPerspective(){
+  const w=host.clientWidth,h=host.clientHeight;
+  camera.aspect=w/Math.max(h,1);
+  if(mode==='idle'&&view==='car'&&w>700)camera.setViewOffset(w,h,-w*.115,-h*.018,w,h);
+  else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+ }
+ function targetPose(next){
+  const w=host.clientWidth,h=host.clientHeight,aspect=w/Math.max(1,h),factor=aspect<1.12?Math.max(1,1.05/aspect):1;
+  if(next==='cockpit')return [vec(-.205,1.15,-.385),vec(1.2,.95,-.18),64];
+  if(next==='hall')return [vec(1.25,3.95,18.0*Math.max(1,factor*.94)),vec(0,.43,-1.85),45];
+  if(doorOpen)return [vec(4.65*factor,2.13*factor,-6.0*factor),vec(.0,.78,0),37];
+  return [vec(4.78*factor,1.98*factor,5.80*factor),vec(0,.73,0),37];
+ }
+ function applyPose(next,animate=true){
+  const [position,target,fov]=targetPose(next),from=camera.position.clone(),previous=controls.target.clone(),f=camera.fov;
+  view=next;host.dataset.view=view;interiorAngle={x:0,y:0};setPerspective();
+  controls.enabled=false;
+  if(reduced||!animate){camera.position.copy(position);controls.target.copy(target);camera.fov=fov;camera.updateProjectionMatrix();camera.lookAt(target);controls.enabled=view!=='cockpit'&&mode==='idle';if(controls.enabled)controls.update();}
+  else viewFlight={from,position,previous,target,f,fov,since:performance.now()};
   invalidate();
  }
- function place(now){
-  const time=(now-since)/1000,t=reduced?10:time;
-  const onRoad=mode==='depart'&&t>1.65;
-  room.visible=floor.visible=reflection.visible=!onRoad;road.g.visible=onRoad;s.background=onRoad?roadSky:studioSky;s.fog.color.copy(onRoad?roadSky:studioSky);
-  const car=carNode.position;car.set(0,0,0);shadow.position.set(0,-.012,0);carNode.rotation.set(0,0,0);
-  truck.g.visible=mode==='load'||mode==='depart';if(ribbon)ribbon.visible=mode==='gift';
-  const light=mode==='gift'&&!reduced&&((t>.15&&t<.33)||(t>.55&&t<.73));
-  active?.lights.forEach(m=>m.emissiveIntensity=light?7:.65);beam.intensity=light?8:0;
-  if(mode==='idle')return;
-  if(mode==='gift'){
-   camera.position.set(6.3-smooth(t/2)*.62,2.45,6.4);camera.lookAt(0,.71,0);
-   if(ribbon){const p=smooth((t-.55)/1.20);ribbon.scale.setScalar(Math.max(.001,p));ribbon.position.y=(1-p)*.43;}
-  } else {
-   const leave=mode==='depart'?smooth((t-.60)/3.25):0;
-   const load=mode==='load'?smooth(t/2.85):1;
-   truck.g.position.set(2.35+leave*21,0,-.12);
-   const open=mode==='depart'?smooth(t/.57):0;
-   truck.gate.rotation.z=(1-open)*.257+open*(-Math.PI/2);
-   truck.flank.visible=mode==='depart'&&t>.52;
-   car.set(T.MathUtils.lerp(-5.4,2.22,load)+leave*21,T.MathUtils.lerp(0,.812,smooth((load-.04)/.64)),-.12);
-   carNode.rotation.z=.16*Math.sin(Math.PI*smooth(load));shadow.position.x=car.x;
-   if(onRoad){
-    const x=truck.g.position.x;road.stripes.position.x=x-(t*3%4);
-    camera.position.set(x-6.4,2.95,8.9);camera.lookAt(x+.75,1.08,-.12);
-   }else {camera.position.set(-6.8,3.15,10.5);camera.lookAt(-.30+leave*4,.93,0);}
+ applyPose('car',false);
+ function sizeCanvas(){
+  const w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
+  if(w!==size.x||h!==size.y){size.set(w,h,0);renderer.setPixelRatio(dpr());renderer.setSize(w,h,false);setPerspective();if(mode==='idle'&&!viewFlight)applyPose(view,false);}
+ }
+ new ResizeObserver(()=>{sizeCanvas();invalidate()}).observe(host);
+ new IntersectionObserver(([e])=>{visible=e.isIntersecting;if(visible)invalidate()}).observe(host);
+ controls.addEventListener('change',invalidate);
+ function prefetch(m,low=false){
+  const key=m.id+(low?'-display':'');
+  if(!cache.has(key))cache.set(key,loadCar(m,!low).catch(e=>{cache.delete(key);throw e}));
+  return cache.get(key);
+ }
+ function park(){
+  if(!selected)return;
+  const others=(opts.models||[]).filter(x=>x.id!==selected.id);
+  for(const item of displayNodes.values())item.visible=false;
+  others.forEach((m,i)=>{
+   const show=a=>{
+    if(!selected||selected.id===m.id)return;
+    const side=i?1:-1;a.group.position.set(side*7.1,.012,0);
+    a.group.rotation.y=side*.22;a.group.scale.setScalar(.91);
+    a.group.visible=true;a.group.userData.model=m.id;
+    a.paint.forEach(p=>p.color.set(bodyColors[defaultPaint[m.id]][0]));
+    displayNodes.set(m.id,a.group);exhibits.add(a.group);invalidate();
+   };
+   if(displayNodes.has(m.id)){
+    const g=displayNodes.get(m.id);g.position.set(i?7.1:-7.1,.012,0);g.rotation.y=i?.22:-.22;g.visible=true;
+   }else prefetch(m,true).then(a=>{if((opts.models||[]).filter(x=>x.id!==selected?.id)[i]?.id===m.id)show(a);}).catch(()=>{});
+  });
+ }
+ function paint(hex){chosen=hex;active?.paint.forEach(m=>m.color.set(hex));invalidate();}
+ function trim(hex){insideColor=hex;active?.trim.forEach(m=>{if(m.map)m.map=null;m.color.set(hex);});invalidate();}
+ function setDoor(open,moveCamera=true){
+  if(!active?.doors.length)return false;
+  doorOpen=open;host.dataset.door=open?'open':'closed';
+  doorMove={from:doorAngle,to:open?1:0,time:performance.now()};
+  if(moveCamera&&view!=='cockpit')applyPose('car');
+  invalidate();return true;
+ }
+ function setMode(next){
+  if(sceneDone){sceneDone(false);sceneDone=null;}
+  mode=next;host.dataset.scene=mode;since=performance.now();viewFlight=null;
+  if(mode==='idle'){camera.fov=37;applyPose('car',false);}
+  else{
+   controls.enabled=false;camera.clearViewOffset();camera.fov=innerWidth<=700?49:38;camera.updateProjectionMatrix();
+   setDoor(false,false);
   }
+  invalidate();
+  if(next==='load'||next==='depart')return new Promise(resolve=>{sceneDone=resolve;});
+  return Promise.resolve(true);
+ }
+ const durations={load:6600,depart:4550,gift:2800};
+ function place(now){
+  const elapsed=(now-since)/1000,t=reduced?(durations[mode]??0)/1000:elapsed;
+  const driving=mode==='load'||mode==='loaded'||mode==='depart';
+  const onRoad=mode==='depart'&&t>2.45;
+  room.visible=floor.visible=reflection.visible=!driving;
+  garage.visible=driving&&!onRoad;road.visible=onRoad;exhibits.visible=mode==='idle';
+  s.background=onRoad?roadSky:studioSky;s.fog.color.copy(onRoad?roadSky:studioSky);
+  const car=carNode.position;car.set(0,0,0);shadow.position.set(0,-.012,0);shadow.visible=mode==='idle'||mode==='gift';
+  carNode.rotation.set(0,0,0);
+  truck.g.visible=driving;if(ribbon)ribbon.visible=mode==='gift';
+  active?.lights.forEach(m=>m.emissiveIntensity=driving?1.82:.82);
+  if(mode==='idle'){
+   doorAngle=T.MathUtils.lerp(doorMove.from,doorMove.to,reduced?1:smooth((now-doorMove.time)/480));
+   for(const d of active?.doors||[])d.pivot.rotation.y=d.angle*doorAngle;
+   return;
+  }
+  for(const d of active?.doors||[])d.pivot.rotation.y=0;
+  if(mode==='gift'){
+   camera.position.set(5.8-smooth(t/2)*.53,2.2,6.5);camera.lookAt(0,.74,0);
+   if(ribbon){const f=smooth((t-.45)/1.05);ribbon.scale.setScalar(Math.max(.001,f));}
+   return;
+  }
+  const truckX=4.25;
+  const loadT=mode==='load'?smooth((t-1.60)/2.99):1;
+  const entry=mode==='load'?smooth(t/1.52):1;
+  const departT=mode==='depart'?T.MathUtils.clamp(t/4.5,0,1):0;
+  const drive=mode==='depart'?departT*departT*32:0;
+  truck.g.position.set(truckX+drive,0,0);
+  const rampDown=.35,rampUp=-Math.PI/2;
+  const ramp=mode==='load'?smooth((t-4.68)/1.18):1;
+  truck.gate.rotation.z=T.MathUtils.lerp(rampDown,rampUp,ramp);
+  truck.near.visible=mode!=='load'||t<1.55||t>4.65;
+  truck.wheels.forEach(w=>w.rotation.z=-drive/.46);
+  let x=T.MathUtils.lerp(-7.4,truckX-.18,loadT);
+  let z=0;
+  if(mode==='load'&&t<1.6){x=-8.08+.68*entry;z=T.MathUtils.lerp(-5.9,0,entry);carNode.rotation.y=-1.48*(1-entry);}
+  const r=smooth((x+3.45)/5.2);
+  car.set(x+drive,.903*r,z);carNode.rotation.z=.19*Math.sin(r*Math.PI);
+  for(const w of active?.wheels||[])w.rotation.z=driving?-((x+8.3)/.37):0;
+  if(mode==='load'){
+   if(t<1.67){camera.position.set(-11.4+entry*1.3,2.3,6.3+entry*1.0);camera.lookAt(-6.8+entry*2.0,.81,-1.6+entry*.8);}
+   else if(t<4.66){
+    const a=smooth((t-1.67)/2.99);
+    camera.position.set(-6.25+3.5*a,2.3+.6*a,8.2+2.1*a);camera.lookAt(-2.5+4.8*a,1.00,.0);
+   }else{
+    const a=smooth((t-4.66)/1.94);
+    camera.position.set(-2.65+a*.8,2.9,10.4+a*1.6);camera.lookAt(2.2+a*1.2,1.35,0);
+   }
+  }else if(mode==='loaded'){
+   camera.position.set(-1.85,2.9,12.0);camera.lookAt(3.4,1.35,0);
+  }else if(onRoad){
+   const x0=truck.g.position.x;
+   const a=smooth((t-2.45)/2.10);camera.position.set(x0-8.8-a*9.5,2.77+a*.24,8.7+a*1.8);camera.lookAt(x0+.38-a*3.3,1.30,0);
+  }else{
+   camera.position.set(-1.85+drive*.35,2.9,12.0);camera.lookAt(3.4+drive*.68,1.35,0);
+  }
+ }
+ function mapExhibits(){
+  if(mode!=='idle'||view!=='hall'){opts.onMarkers?.([]);return;}
+  const points=[...displayNodes].filter(([,g])=>g.visible).map(([id,g])=>{
+   const at=g.position.clone().add(vec(0,1.64,0)).project(camera);
+   return {id,x:(at.x*.5+.5)*100,y:(.5-at.y*.5)*100,visible:Math.abs(at.x)<.95&&Math.abs(at.y)<.9&&at.z<1};
+  });
+  if(selected){const a=vec(0,1.7,0).project(camera);points.push({id:selected.id,x:(a.x*.5+.5)*100,y:(.5-a.y*.5)*100,visible:Math.abs(a.x)<.95&&Math.abs(a.y)<.9&&a.z<1});}
+  opts.onMarkers?.(points);
  }
  function frame(now){
   raf=0;if(!visible)return;
-  sizeCanvas();
-  dirty=false;place(now);
-  if(mode==='idle')controls.update();
-  if(size.x&&size.y)renderer.render(s,camera);
-  if(!raf&&(dirty||(mode!=='idle'&&!reduced&&now-since<4800)))raf=requestAnimationFrame(frame);
+  sizeCanvas();dirty=false;place(now);
+  if(viewFlight&&mode==='idle'){
+   const a=smooth((now-viewFlight.since)/740),m=viewFlight;
+   camera.position.lerpVectors(m.from,m.position,a);controls.target.lerpVectors(m.previous,m.target,a);
+   camera.fov=T.MathUtils.lerp(m.f,m.fov,a);camera.updateProjectionMatrix();camera.lookAt(controls.target);
+   if(a===1){viewFlight=null;controls.enabled=view!=='cockpit';if(controls.enabled)controls.update();}
+  }else if(controls.enabled&&mode==='idle')controls.update();
+  if(size.x&&size.y){renderer.render(s,camera);mapExhibits();}
+  if(sceneDone&&(reduced||now-since>=durations[mode])){
+   const fn=sceneDone;sceneDone=null;fn(true);
+  }
+  if(!raf&&(dirty||viewFlight||(!reduced&&((mode==='idle'&&now-doorMove.time<520)||(durations[mode]&&now-since<durations[mode]+50)))))raf=requestAnimationFrame(frame);
  }
- raf=requestAnimationFrame(frame);
- function control(key){if(key==='reset'){reset();invalidate();}else if(key==='plus'||key==='minus'){
-   const v=camera.position.clone().sub(controls.target),len=v.length(),next=T.MathUtils.clamp(len*(key==='plus'?.83:1.19),controls.minDistance,controls.maxDistance);
-   camera.position.copy(controls.target).add(v.setLength(next));controls.update();invalidate();
-  }}
+ function control(key){
+  if(key==='reset'){applyPose(view);return;}
+  if(view==='cockpit'||(key!=='plus'&&key!=='minus'))return;
+  const v=camera.position.clone().sub(controls.target),next=T.MathUtils.clamp(v.length()*(key==='plus'?.83:1.19),controls.minDistance,controls.maxDistance);
+  camera.position.copy(controls.target).add(v.setLength(next));controls.update();invalidate();
+ }
+ let pointer=null;
+ const ray=new T.Raycaster();
+ function shiftCab(dx,dy){
+  if(view!=='cockpit'||viewFlight)return;
+  interiorAngle.x=T.MathUtils.clamp(interiorAngle.x-dx*.006,-1.37,1.37);
+  interiorAngle.y=T.MathUtils.clamp(interiorAngle.y+dy*.006,-.6,.62);
+  const {x,y}=interiorAngle;
+  camera.lookAt(camera.position.clone().add(vec(Math.cos(y)*Math.cos(x),Math.sin(y)-.08,Math.cos(y)*Math.sin(x))));invalidate();
+ }
+ canvas.addEventListener('pointerdown',e=>{pointer={x:e.clientX,y:e.clientY,fromX:e.clientX,fromY:e.clientY};if(view==='cockpit')canvas.setPointerCapture(e.pointerId);});
+ canvas.addEventListener('pointermove',e=>{if(!pointer)return;if(view==='cockpit')shiftCab(e.clientX-pointer.x,e.clientY-pointer.y);pointer.x=e.clientX;pointer.y=e.clientY;});
+ canvas.addEventListener('pointercancel',()=>{pointer=null;});
+ canvas.addEventListener('pointerup',e=>{
+  if(pointer&&mode==='idle'&&view==='hall'&&Math.hypot(e.clientX-pointer.fromX,e.clientY-pointer.fromY)<7){
+   const b=canvas.getBoundingClientRect();
+   ray.setFromCamera({x:(e.clientX-b.left)/b.width*2-1,y:1-(e.clientY-b.top)/b.height*2},camera);
+   let chosen;
+   for(const [id,g] of [[selected?.id,carNode],...displayNodes])if(id&&g.visible){
+    const box=new T.Box3().setFromObject(g);
+    const hit=ray.ray.intersectBox(box,vec());
+    if(hit&&(!chosen||hit.distanceTo(camera.position)<chosen.dist))chosen={id,dist:hit.distanceTo(camera.position)};
+   }
+   if(chosen)opts.onPick?.(chosen.id);
+  }
+  pointer=null;
+ });
  canvas.addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-','Home'].includes(e.key))return;
   e.preventDefault();if(e.key==='Home'||e.key==='+'||e.key==='-'){control(e.key==='Home'?'reset':e.key==='+'?'plus':'minus');return;}
+  if(view==='cockpit'){shiftCab(e.key==='ArrowLeft'?20:e.key==='ArrowRight'?-20:0,e.key==='ArrowUp'?20:e.key==='ArrowDown'?-20:0);return;}
   const sp=new T.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
   if(e.key==='ArrowLeft'||e.key==='ArrowRight')sp.theta+=e.key==='ArrowLeft'?-.14:.14;
   else sp.phi=T.MathUtils.clamp(sp.phi+(e.key==='ArrowUp'?-.10:.10),controls.minPolarAngle,controls.maxPolarAngle);
   camera.position.copy(controls.target).add(vec().setFromSpherical(sp));controls.update();
  });
- canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();canvas.style.visibility='hidden';status.textContent='3D временно недоступно.'});
+ canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();canvas.style.visibility='hidden';status.textContent='3D временно недоступно.';});
  canvas.addEventListener('webglcontextrestored',()=>{canvas.style.visibility='visible';status.textContent='';invalidate()});
- return {paint:color,control,scene:setMode, async select(m,hex){
-   const ticket=++token;selected=m;chosen=hex;status.textContent='Загружаем 3D…';canvas.style.visibility='hidden';host.dataset.ready='false';
-   try{
-    if(!cache.has(m.id))cache.set(m.id,loadCar(m).catch(e=>{cache.delete(m.id);throw e}));
-    const a=await cache.get(m.id);if(ticket!==token)return;
-    if(active)carNode.remove(active.group);if(ribbon){carNode.remove(ribbon);ribbon.traverse(o=>{if(o.isMesh)o.geometry.dispose()});ribbon.children[0]?.material.dispose()}
-    active=a;carNode.add(a.group);
-    ribbon=bow(selected.length);ribbon.visible=false;carNode.add(ribbon);color(chosen);
-    status.textContent='';canvas.style.visibility='visible';host.dataset.ready='true';host.dataset.model=m.id;sizeCanvas();place(performance.now());renderer.render(s,camera);invalidate();
-   } catch(e){if(ticket===token){status.textContent='Модель не загрузилась. Показан статичный ракурс.';console.error(e);}}
+ return {paint,trim,control,scene:setMode,view:applyPose,door:setDoor,loaded(){setMode('loaded');},async select(m,hex,trimHex){
+  const ticket=++token;selected=m;chosen=hex;insideColor=trimHex;status.textContent='Загружаем 3D…';host.dataset.ready='false';canvas.style.visibility='hidden';park();
+  try{
+   const a=await prefetch(m);
+   if(ticket!==token)return;
+   if(active)carNode.remove(active.group);
+   if(ribbon){carNode.remove(ribbon);ribbon.traverse(o=>{if(o.isMesh)o.geometry.dispose()});ribbon.children[0]?.material.dispose();}
+   active=a;carNode.add(a.group);
+   ribbon=bow(m.length);ribbon.visible=false;carNode.add(ribbon);
+   doorOpen=false;doorAngle=0;doorMove={from:0,to:0,time:0};host.dataset.door='closed';
+   paint(chosen);trim(insideColor);
+   host.dataset.ready='true';host.dataset.model=m.id;status.textContent='';canvas.style.visibility='visible';
+   sizeCanvas();applyPose('car',false);invalidate();
+  }catch(e){if(ticket===token){status.textContent='Модель не загрузилась. Показан статичный ракурс.';canvas.style.visibility='hidden';console.error(e);}}
  }};
 }
